@@ -9,8 +9,9 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 
 
-DATA_PATH = Path("spamraw.csv")
-CHECKPOINT_PATH = Path("spam_lstm_checkpoint.pt")
+BASE_DIR = Path(__file__).resolve().parent
+DATA_PATH = BASE_DIR / "spamraw.csv"
+CHECKPOINT_PATH = BASE_DIR / "spam_lstm_checkpoint.pt"
 
 SEED = 42
 VAL_SPLIT = 0.2
@@ -215,6 +216,8 @@ def save_checkpoint(
     model: nn.Module,
     vocab: dict[str, int],
     max_len: int,
+    best_epoch: int | None = None,
+    best_val_acc: float | None = None,
 ) -> None:
     checkpoint = {
         "model_state_dict": model.state_dict(),
@@ -229,6 +232,8 @@ def save_checkpoint(
         },
         "threshold": 0.5,
         "label_map": {0: "Not Spam", 1: "Spam"},
+        "best_epoch": best_epoch,
+        "best_val_acc": best_val_acc,
     }
     torch.save(checkpoint, path)
 
@@ -264,6 +269,9 @@ def main() -> None:
     print(f"Loaded {len(texts)} samples | Train: {len(train_dataset)} | Val: {len(val_dataset)}")
     print(f"Using device: {device}")
 
+    best_val_acc = float("-inf")
+    best_epoch = -1
+
     for epoch in range(1, EPOCHS + 1):
         train_loss, train_acc = run_epoch(model, train_loader, criterion, optimizer, device)
         val_loss, val_acc = run_epoch(model, val_loader, criterion, None, device)
@@ -274,8 +282,26 @@ def main() -> None:
             f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}"
         )
 
-    save_checkpoint(CHECKPOINT_PATH, model, vocab, MAX_LEN)
-    print(f"Checkpoint saved to: {CHECKPOINT_PATH.resolve()}")
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+            best_epoch = epoch
+            save_checkpoint(
+                CHECKPOINT_PATH,
+                model,
+                vocab,
+                MAX_LEN,
+                best_epoch=best_epoch,
+                best_val_acc=best_val_acc,
+            )
+            print(
+                f"New best checkpoint saved (epoch {best_epoch}, "
+                f"val_acc={best_val_acc:.4f})"
+            )
+
+    print(
+        f"Best checkpoint saved to: {CHECKPOINT_PATH.resolve()} "
+        f"(epoch {best_epoch}, val_acc={best_val_acc:.4f})"
+    )
 
 
 if __name__ == "__main__":

@@ -3,10 +3,11 @@ from pathlib import Path
 import streamlit as st
 import torch
 
-from train import SpamLSTMClassifier, encode_text
+from train import SpamLSTMClassifier, encode_text, preprocess_text
 
 
-CHECKPOINT_PATH = Path("spam_lstm_checkpoint.pt")
+BASE_DIR = Path(__file__).resolve().parent
+CHECKPOINT_PATH = BASE_DIR / "spam_lstm_checkpoint.pt"
 
 
 @st.cache_resource
@@ -43,7 +44,11 @@ def predict_sms(
     vocab: dict[str, int],
     max_len: int,
     threshold: float,
-) -> tuple[str, float]:
+) -> tuple[str, float, float]:
+    tokens = preprocess_text(message)
+    known_tokens = sum(1 for token in tokens if token in vocab)
+    token_coverage = known_tokens / max(1, len(tokens))
+
     token_ids = encode_text(message, vocab, max_len)
     input_tensor = torch.tensor(token_ids, dtype=torch.long).unsqueeze(0)
     # input_tensor shape: [1, seq_len]
@@ -54,7 +59,7 @@ def predict_sms(
         spam_probability = torch.sigmoid(logits).item()
 
     prediction = "Spam" if spam_probability >= threshold else "Not Spam"
-    return prediction, spam_probability
+    return prediction, spam_probability, token_coverage
 
 
 def main() -> None:
@@ -68,6 +73,15 @@ def main() -> None:
         st.error(str(error))
         st.stop()
 
+    threshold = st.slider(
+        "Spam threshold",
+        min_value=0.05,
+        max_value=0.95,
+        value=float(threshold),
+        step=0.01,
+        help="Lower values classify more messages as Spam. Use this to tune sensitivity.",
+    )
+
     message = st.text_area("SMS Message", height=140, placeholder="Enter message text here...")
     predict_clicked = st.button("Predict")
 
@@ -76,7 +90,9 @@ def main() -> None:
             st.warning("Please enter a non-empty message.")
             st.stop()
 
-        predicted_label, spam_probability = predict_sms(message, model, vocab, max_len, threshold)
+        predicted_label, spam_probability, token_coverage = predict_sms(
+            message, model, vocab, max_len, threshold
+        )
         confidence = spam_probability if predicted_label == "Spam" else (1.0 - spam_probability)
 
         if predicted_label == "Spam":
@@ -88,6 +104,13 @@ def main() -> None:
         st.caption(
             f"Spam probability: {spam_probability:.4f} (threshold = {threshold:.2f})"
         )
+
+        st.caption(f"Known-token coverage: {token_coverage:.2%}")
+        if token_coverage < 0.35:
+            st.info(
+                "This message uses many words not seen during training. "
+                "Predictions may lean toward Not Spam for out-of-vocabulary text."
+            )
 
 
 if __name__ == "__main__":
