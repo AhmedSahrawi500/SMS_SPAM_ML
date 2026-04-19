@@ -263,11 +263,17 @@ def main() -> None:
         dropout=DROPOUT,
     ).to(device)
 
-    criterion = nn.BCEWithLogitsLoss()
+    # Calculate class weight to handle imbalance 
+    spam_count = sum(train_labels)
+    ham_count = len(train_labels) - spam_count
+    pos_weight = ham_count / max(1, spam_count)  # Weight positive (spam) class more heavily
+
+    criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(pos_weight))
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
     print(f"Loaded {len(texts)} samples | Train: {len(train_dataset)} | Val: {len(val_dataset)}")
     print(f"Using device: {device}")
+    print(f"Class weights: Spam={pos_weight:.2f}x (to balance {ham_count/max(1, spam_count):.2f}x imbalance)")
 
     best_val_acc = float("-inf")
     best_epoch = -1
